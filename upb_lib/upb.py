@@ -19,24 +19,22 @@ LOG = logging.getLogger(__name__)
 class UpbPim:
     """Represents all the components on an UPB PIM."""
 
-    def __init__(self, config, loop=None):
+    def __init__(self, host=None, port=2101, serial=None, reconnect_callback=None, loop=None):
         """Initialize a new PIM instance."""
         self.loop = loop if loop else asyncio.get_event_loop()
-        self._config = config
+        self._host = host
+        self._port = port
+        self._serial = serial
         self._conn = None
         self._transport = None
         self.connection_lost_callbk = None
+        self.reconnect_callback = reconnect_callback
         self._connection_retry_timer = 1
         self._message_decode = MessageDecode()
         self._sync_handlers = []
         self._heartbeat = None
         self.lights = Lights(self)
         self.links = Links(self)
-
-        # Setup for all the types of elements tracked
-        export_filepath = config.get("UPStartExportFile")
-        if export_filepath:
-            process_upstart_file(self, config["UPStartExportFile"])
 
     def _create_element(self, element):
         module = import_module("upb_lib." + element)
@@ -46,9 +44,6 @@ class UpbPim:
     async def _connect(self, connection_lost_callbk=None):
         """Asyncio connection to UPB."""
         self.connection_lost_callbk = connection_lost_callbk
-        url = self._config["url"]
-        LOG.info("Connecting to UPB PIM at %s", url)
-        scheme, dest, param = parse_url(url)
         conn = partial(
             Connection,
             self.loop,
@@ -58,15 +53,19 @@ class UpbPim:
             self._timeout,
         )
         try:
-            if scheme == "serial":
+            if self._serial:
+                LOG.info("Connecting to UPB PIM at %s", self._serial)
                 await serial_asyncio.create_serial_connection(
-                    self.loop, conn, dest, baudrate=param
+                    self.loop, conn, self._serial, baudrate=param
                 )
-            else:
+            elif self._host:
+                LOG.info("Connecting to UPB PIM at host %s port %d", self._host, self._port)
                 await asyncio.wait_for(
-                    self.loop.create_connection(conn, host=dest, port=param, ssl=None),
+                    self.loop.create_connection(conn, host=self._host, port=self._port),
                     timeout=30,
                 )
+            else:
+                raise Exception('Please set the host or serial PIM connection.')
         except (ValueError, OSError, asyncio.TimeoutError) as err:
             LOG.warning(
                 "Could not connect to UPB PIM (%s). Retrying in %d seconds",
@@ -86,11 +85,12 @@ class UpbPim:
         self._conn = conn
         self._transport = transport
         self._connection_retry_timer = 1
+        self.reconnect_callback(self)
 
         # The intention of this is to clear anything in the PIM receive buffer.
         # A number of times on startup error(s) (PE) are returned. This too will
         # return an error, but hopefully resets the PIM
-        self.send("")
+        #self.send("")
 
         self.call_sync_handlers()
         # control = get_control_word(link=False)
@@ -102,16 +102,12 @@ class UpbPim:
         # self.send(encode_message(control, 194, 8, 255, 0x10, bytearray([80,16])))
         # self.send(encode_message(control, 194, 9, 255, 0x30))
 
-        if not self._config["url"].startswith("serial://"):
-            self._heartbeat = self.loop.call_later(120, self._reset_connection)
-
     def _reset_connection(self):
         LOG.warning("PIM connection heartbeat timed out, disconnecting")
         self._transport.close()
         self._heartbeat = None
 
     def _disconnected(self):
-        LOG.warning("PIM at %s disconnected", self._config["url"])
         self._conn = None
         self.loop.call_later(self._connection_retry_timer, self.connect)
         if self._heartbeat:

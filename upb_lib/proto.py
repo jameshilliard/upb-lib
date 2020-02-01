@@ -4,6 +4,7 @@ import asyncio
 from collections import namedtuple
 from functools import reduce
 import logging
+import binascii
 
 from .const import PimCommand
 
@@ -37,7 +38,7 @@ class Connection(asyncio.Protocol):
         self._transport = None
         self._timeout_task = None
         self._queued_writes = []
-        self._buffer = ""
+        self._buffer = b""
         self._paused = False
         self._msgmap = {
             "A": "accepted",
@@ -70,10 +71,14 @@ class Connection(asyncio.Protocol):
         self._paused = False
 
     def data_received(self, data):
-        self._buffer += data.decode("ISO-8859-1")
-        while "\r" in self._buffer:
-            line, self._buffer = self._buffer.split("\r", 1)
-            LOG.debug("message received: %10s '%s'", self._msgmap[line[1]], line)
+        LOG.debug("RAW UPB data: {}".format(data.decode('ascii', errors='surrogateescape')))
+        LOG.debug("RAW UPB hex data: {}".format(binascii.hexlify(data).decode('ascii')))
+        self._buffer += data
+        while b"\r" in self._buffer:
+            line, self._buffer = self._buffer.split(b"\r", 1)
+            LOG.debug("RAW UPB line data: {}".format(line.decode('ascii', errors='surrogateescape')))
+            LOG.debug("RAW UPB line hex data: {}".format(binascii.hexlify(line).decode('ascii')))
+            #LOG.debug("message received: %10s '%s'", self._msgmap[line[1]], line)
 
             pim_command = line[:2]
             if pim_command == "PA":  # Accept
@@ -115,7 +120,7 @@ class Connection(asyncio.Protocol):
     def _cleanup(self):
         self._cancel_timer()
         self._queued_writes = []
-        self._buffer = ""
+        self._buffer = b""
 
     def _response_required_timeout(self):
         self._timeout(True)

@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+
+from upb_lib import UpbPim
+
+import logging
+import argparse
+
+LOG = logging.getLogger(__name__)
+
+def parse_args():
+    parser = argparse.ArgumentParser("pim")
+
+    parser.add_argument('-o', '--host', action='store', dest='host',
+                        help='Host')
+    parser.add_argument('-p', '--port', action='store', dest='port',
+                        default=2101, help='Port')
+    parser.add_argument('-s', '--serial', action='store', dest='serial',
+                        help='Port')
+    results = parser.parse_args()
+    return results
+
+def connected(pim):
+    print("scanner connected")
+    pim._conn._transport.write(b'\x20')
+
+def main():
+    config = {}
+
+    args = parse_args()
+    if args.host:
+        pim = UpbPim(host=args.host, port=args.port, reconnect_callback=connected)
+    elif args.serial:
+        pim = UpbPim(serial=args.serial, reconnect_callback=connected)
+    else:
+        raise Exception('Please set the host or serial PIM connection.')
+
+    logging.basicConfig(level=logging.DEBUG, format='%(message)s')
+
+    try:
+        # pim.add_handler('unknown', _unknown_handler)
+        # pim.add_handler('timeout', _timeout_handler)
+        pim.connect()
+        pim.run()
+    except KeyboardInterrupt:
+        exit(0)
+
+if __name__ == '__main__':
+    main()

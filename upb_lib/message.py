@@ -6,6 +6,7 @@ UPB message encode/decode.
 from base64 import b16encode
 from collections import namedtuple
 from functools import reduce
+import binascii
 import logging
 import re
 
@@ -51,6 +52,7 @@ class MessageDecode:
 
         Minimum length is 14 bytes (all the bytes except the '...' bit)
         """
+        LOG.warn("RAW UPB message: {}".format(binascii.hexlify(msg)))
         if len(msg) < 14:
             raise ValueError("UPB message less than 14 characters")
 
